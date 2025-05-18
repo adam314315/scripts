@@ -106,28 +106,17 @@ install_docker_for_n8n() {
             print_warning "There might have been an issue adding user to docker group."
         fi
         
-        print_warning "IMPORTANT: You need to log out and back in (or restart) for Docker group changes to take effect."
-        print_warning "Alternatively, you can run 'newgrp docker' to apply the group changes immediately."
-        echo ""
-        
-        # Provide option to test docker without sudo
-        if confirm "Would you like to test Docker access now? (This will try 'newgrp docker' first)"; then
-            echo "Testing Docker access..."
-            
-            # Try newgrp docker and then test
-            if newgrp docker <<< 'docker ps >/dev/null 2>&1 && echo "SUCCESS"' | grep -q "SUCCESS"; then
-                print_status "Docker is working correctly! You can now run 'docker ps' without sudo."
-            else
-                print_warning "Docker still requires sudo or a re-login to work properly."
-                print_status "Please either:"
-                print_status "  1. Log out and back in to your system"
-                print_status "  2. Run: newgrp docker"
-                print_status "  3. Restart your terminal/session"
-                print_status "After that, you should be able to run 'docker ps' without sudo."
-            fi
+        # Apply docker group changes immediately
+        print_status "Applying Docker group changes..."
+        if newgrp docker <<< 'docker ps >/dev/null 2>&1 && echo "SUCCESS"' 2>/dev/null | grep -q "SUCCESS"; then
+            print_status "Docker group changes applied successfully!"
+            print_status "You can now run 'docker ps' without sudo."
+        else
+            print_warning "Could not automatically apply Docker group changes."
+            print_warning "IMPORTANT: You need to log out and back in (or restart) for Docker group changes to take effect."
+            print_warning "Alternatively, you can run 'newgrp docker' to apply the group changes immediately."
         fi
         
-        # Show current docker permissions status
         echo ""
         print_status "Current user groups: $(groups $USER)"
         print_status "To verify Docker access later, try: docker ps"
@@ -319,6 +308,23 @@ install_n8n_docker() {
     if ! command_exists docker; then
         print_warning "Docker not found. Installing Docker first..."
         install_docker_for_n8n
+    else
+        # Docker is installed, ensure user has proper permissions
+        if ! docker ps >/dev/null 2>&1; then
+            print_warning "Docker requires sudo to run. Checking group membership..."
+            if ! groups $USER | grep -q docker; then
+                print_status "Adding user to docker group..."
+                sudo usermod -aG docker $USER
+            fi
+            
+            # Try to apply group changes
+            print_status "Attempting to apply Docker group changes..."
+            if newgrp docker <<< 'docker ps >/dev/null 2>&1 && echo "SUCCESS"' 2>/dev/null | grep -q "SUCCESS"; then
+                print_status "Docker group changes applied successfully!"
+            else
+                print_warning "Please run 'newgrp docker' or restart your terminal to enable Docker without sudo."
+            fi
+        fi
     fi
     
     # Get installation directory
@@ -339,11 +345,36 @@ install_n8n_docker() {
     cat > "$current_dir/n8n-docker-start.sh" << EOF
 #!/bin/bash
 echo "Starting n8n with Docker..."
+
+# Check if user can run docker without sudo
+if docker ps >/dev/null 2>&1; then
+    echo "Using Docker without sudo..."
+    DOCKER_CMD="docker"
+else
+    echo "Docker requires sudo. Checking if user is in docker group..."
+    if groups \$USER | grep -q docker; then
+        echo "User is in docker group. Trying 'newgrp docker'..."
+        echo "Note: If this fails, please run 'newgrp docker' manually or restart your terminal."
+        exec newgrp docker << 'DOCKERCMD'
 docker run -it --rm \\
     --name n8n \\
     -p 5678:5678 \\
     -v "$absolute_data_dir:/home/node/.n8n" \\
     n8nio/n8n
+DOCKERCMD
+    else
+        echo "User not in docker group. Using sudo..."
+        DOCKER_CMD="sudo docker"
+    fi
+fi
+
+if [ -n "\$DOCKER_CMD" ]; then
+    \$DOCKER_CMD run -it --rm \\
+        --name n8n \\
+        -p 5678:5678 \\
+        -v "$absolute_data_dir:/home/node/.n8n" \\
+        n8nio/n8n
+fi
 EOF
     
     chmod +x "$current_dir/n8n-docker-start.sh"
@@ -379,6 +410,23 @@ install_n8n_docker_compose() {
     if ! command_exists docker; then
         print_warning "Docker not found. Installing Docker first..."
         install_docker_for_n8n
+    else
+        # Docker is installed, ensure user has proper permissions
+        if ! docker ps >/dev/null 2>&1; then
+            print_warning "Docker requires sudo to run. Checking group membership..."
+            if ! groups $USER | grep -q docker; then
+                print_status "Adding user to docker group..."
+                sudo usermod -aG docker $USER
+            fi
+            
+            # Try to apply group changes
+            print_status "Attempting to apply Docker group changes..."
+            if newgrp docker <<< 'docker ps >/dev/null 2>&1 && echo "SUCCESS"' 2>/dev/null | grep -q "SUCCESS"; then
+                print_status "Docker group changes applied successfully!"
+            else
+                print_warning "Please run 'newgrp docker' or restart your terminal to enable Docker without sudo."
+            fi
+        fi
     fi
     
     # Get installation directory for Docker Compose project
