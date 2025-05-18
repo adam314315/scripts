@@ -72,18 +72,107 @@ install_n8n_npm() {
         install_nodejs
     fi
     
-    # Install n8n globally
-    npm install -g n8n
+    # Ask for installation type
+    echo ""
+    print_header "n8n Installation Type"
+    echo ""
+    echo "Choose installation type:"
+    echo "1) Global installation (system-wide, accessible from anywhere)"
+    echo "2) Local installation (specific directory)"
+    echo ""
     
-    print_status "n8n installed successfully!"
-    print_status "To start n8n, run: n8n"
+    while true; do
+        read -p "Enter your choice (1-2): " install_type
+        case $install_type in
+            1)
+                # Global installation
+                print_status "Installing n8n globally..."
+                npm install -g n8n
+                
+                print_status "n8n installed globally!"
+                print_status "To start n8n, run: n8n"
+                break
+                ;;
+            2)
+                # Local installation - ask for directory
+                local default_install_dir="./n8n"
+                local install_dir=$(get_installation_directory "n8n" "$default_install_dir" "local installation")
+                
+                setup_installation_directory "$install_dir" "n8n"
+                cd "$install_dir"
+                
+                # Initialize npm project and install n8n locally
+                print_status "Installing n8n locally in: $install_dir"
+                npm init -y
+                npm install n8n
+                
+                # Create start script
+                cat > start-n8n.sh << 'EOF'
+#!/bin/bash
+echo "Starting n8n..."
+npx n8n
+EOF
+                chmod +x start-n8n.sh
+                
+                print_status "n8n installed locally in: $install_dir"
+                print_status "To start n8n, run: cd \"$install_dir\" && ./start-n8n.sh"
+                print_status "Or run: cd \"$install_dir\" && npx n8n"
+                break
+                ;;
+            *)
+                print_error "Invalid choice. Please enter 1 or 2."
+                ;;
+        esac
+    done
+    
+    # Get data directory for n8n
+    local default_data_dir="./n8n-data"
+    echo ""
+    print_status "n8n also needs a data directory for workflows and settings."
+    local n8n_data_dir=$(get_installation_directory "n8n data" "$default_data_dir" "data storage")
+    setup_installation_directory "$n8n_data_dir" "n8n data"
+    
+    # Set N8N_USER_FOLDER environment variable if not default
+    local expanded_data_dir=$(realpath "$n8n_data_dir")
+    local default_expanded=$(realpath "$HOME/.n8n" 2>/dev/null || echo "$HOME/.n8n")
+    
+    if [ "$expanded_data_dir" != "$default_expanded" ]; then
+        echo ""
+        print_status "Setting n8n data directory to: $n8n_data_dir"
+        print_status "You may want to add this to your shell profile:"
+        echo "export N8N_USER_FOLDER=\"$expanded_data_dir\""
+        
+        if confirm "Would you like to add this environment variable to your ~/.bashrc?"; then
+            echo "export N8N_USER_FOLDER=\"$expanded_data_dir\"" >> ~/.bashrc
+            print_status "Added N8N_USER_FOLDER to ~/.bashrc"
+            print_warning "Please run 'source ~/.bashrc' or restart your terminal for changes to take effect."
+        fi
+    fi
+    
+    # Configure firewall for n8n port
+    print_status "Configuring firewall for n8n..."
+    open_firewall_port 5678 tcp "n8n"
+    
     print_status "n8n will be available at: http://localhost:5678"
+    print_status "Data directory: $n8n_data_dir"
+    
+    # Check if port is available
+    if check_port_open 5678; then
+        print_status "Port 5678 is ready for n8n"
+    else
+        print_warning "Port 5678 may be in use. n8n might need a different port."
+    fi
     
     # Create systemd service (Linux only)
     if [[ "$(detect_os)" != "macos" ]] && [[ "$(detect_os)" != "windows" ]]; then
         if confirm "Would you like to create a systemd service for n8n?"; then
-            create_n8n_service
+            create_n8n_service "$install_dir" "$n8n_data_dir"
         fi
+    fi
+    
+    # Show firewall status
+    if is_firewall_active; then
+        show_firewall_status
     fi
 }
 
@@ -100,26 +189,51 @@ install_n8n_docker() {
         install_docker
     fi
     
-    # Create n8n data directory
-    ensure_directory "$HOME/.n8n"
+    # Get installation directory
+    local default_data_dir="./n8n-data"
+    local n8n_data_dir=$(get_installation_directory "n8n data" "$default_data_dir" "data storage")
     
-    # Create a simple start script
-    cat > n8n-docker-start.sh << 'EOF'
+    # Create n8n data directory
+    setup_installation_directory "$n8n_data_dir" "n8n data"
+    
+    # Configure firewall for n8n port
+    print_status "Configuring firewall for n8n..."
+    open_firewall_port 5678 tcp "n8n"
+    
+    # Create a simple start script in current directory
+    local current_dir=$(pwd)
+    local absolute_data_dir=$(realpath "$n8n_data_dir")
+    
+    cat > "$current_dir/n8n-docker-start.sh" << EOF
 #!/bin/bash
 echo "Starting n8n with Docker..."
-docker run -it --rm \
-    --name n8n \
-    -p 5678:5678 \
-    -v ~/.n8n:/home/node/.n8n \
+docker run -it --rm \\
+    --name n8n \\
+    -p 5678:5678 \\
+    -v "$absolute_data_dir:/home/node/.n8n" \\
     n8nio/n8n
 EOF
     
-    chmod +x n8n-docker-start.sh
+    chmod +x "$current_dir/n8n-docker-start.sh"
     
     print_status "n8n Docker setup complete!"
+    print_status "Data directory: $n8n_data_dir"
+    print_status "Start script: $current_dir/n8n-docker-start.sh"
     print_status "To start n8n with Docker, run: ./n8n-docker-start.sh"
-    print_status "Or use: docker run -it --rm --name n8n -p 5678:5678 -v ~/.n8n:/home/node/.n8n n8nio/n8n"
+    print_status "Or use: docker run -it --rm --name n8n -p 5678:5678 -v \"$absolute_data_dir:/home/node/.n8n\" n8nio/n8n"
     print_status "n8n will be available at: http://localhost:5678"
+    
+    # Check if port is available
+    if check_port_open 5678; then
+        print_status "Port 5678 is ready for n8n"
+    else
+        print_warning "Port 5678 may be in use. You may need to stop other services or use a different port."
+    fi
+    
+    # Show firewall status
+    if is_firewall_active; then
+        show_firewall_status
+    fi
 }
 
 # Function to install n8n via Docker Compose
@@ -135,9 +249,17 @@ install_n8n_docker_compose() {
         install_docker
     fi
     
+    # Get installation directory for Docker Compose project
+    local default_project_dir="./n8n-docker"
+    local project_dir=$(get_installation_directory "n8n Docker Compose project" "$default_project_dir" "project files")
+    
+    # Configure firewall for n8n port
+    print_status "Configuring firewall for n8n..."
+    open_firewall_port 5678 tcp "n8n"
+    
     # Create project directory
-    ensure_directory "n8n-docker"
-    cd n8n-docker
+    setup_installation_directory "$project_dir" "n8n Docker Compose"
+    cd "$project_dir"
     
     # Create docker-compose.yml
     cat > docker-compose.yml << 'EOF'
@@ -240,7 +362,7 @@ EOF
 
     chmod +x start.sh stop.sh logs.sh backup.sh
     
-    print_status "Docker Compose setup created in ./n8n-docker/"
+    print_status "Docker Compose setup created in: $project_dir"
     print_status "Configuration files created:"
     print_status "  - docker-compose.yml (Main configuration)"
     print_status "  - .env (Environment variables)"
@@ -250,21 +372,50 @@ EOF
     print_status "  - backup.sh (Backup database)"
     echo ""
     print_status "To start n8n:"
-    echo "  cd n8n-docker && ./start.sh"
+    echo "  cd \"$project_dir\" && ./start.sh"
     print_status "To stop n8n:"
-    echo "  cd n8n-docker && ./stop.sh"
+    echo "  cd \"$project_dir\" && ./stop.sh"
     print_status "n8n will be available at: http://localhost:5678"
     print_warning "Default credentials: admin/changeme (change in .env file)"
+    
+    # Check if port is available
+    if check_port_open 5678; then
+        print_status "Port 5678 is ready for n8n"
+    else
+        print_warning "Port 5678 may be in use. You may need to stop other services or configure a different port."
+    fi
+    
+    # Show firewall status
+    if is_firewall_active; then
+        show_firewall_status
+    fi
 }
 
 # Function to create systemd service for n8n
 create_n8n_service() {
+    local install_dir="${1:-}"
+    local data_dir="${2:-$HOME/.n8n}"
     local service_file="/etc/systemd/system/n8n.service"
-    local n8n_path=$(which n8n)
     local user=$(whoami)
     
     print_status "Creating systemd service for n8n..."
     
+    # Determine the ExecStart command based on installation type
+    local exec_start
+    if [ -n "$install_dir" ] && [ -f "$install_dir/node_modules/.bin/n8n" ]; then
+        # Local installation
+        exec_start="$install_dir/node_modules/.bin/n8n"
+    else
+        # Global installation
+        local n8n_path=$(which n8n)
+        if [ -z "$n8n_path" ]; then
+            print_error "Cannot find n8n executable. Please check your installation."
+            return 1
+        fi
+        exec_start="$n8n_path"
+    fi
+    
+    # Create the service file
     sudo tee "$service_file" > /dev/null << EOF
 [Unit]
 Description=n8n workflow automation
@@ -273,11 +424,13 @@ After=network.target
 [Service]
 Type=simple
 User=$user
-ExecStart=$n8n_path
+WorkingDirectory=$HOME
+ExecStart=$exec_start
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
 Environment=N8N_LOG_LEVEL=info
+Environment=N8N_USER_FOLDER=$data_dir
 
 [Install]
 WantedBy=multi-user.target
@@ -287,6 +440,11 @@ EOF
     sudo systemctl enable n8n
     
     print_status "Systemd service created successfully!"
+    print_status "Service configuration:"
+    print_status "  - Executable: $exec_start"
+    print_status "  - Data directory: $data_dir"
+    print_status "  - User: $user"
+    echo ""
     print_status "To start n8n service: sudo systemctl start n8n"
     print_status "To check status: sudo systemctl status n8n"
     print_status "To view logs: sudo journalctl -u n8n -f"
