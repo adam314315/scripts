@@ -1,7 +1,5 @@
-#!/bin/bash
-
 # Installation Functions
-# Contains all installation methods for n8n and its dependencies
+# Contains general installation methods for dependencies
 
 # Function to install Node.js and npm
 install_nodejs() {
@@ -93,242 +91,115 @@ install_docker() {
     if [[ "$os" != "macos" ]]; then
         sudo systemctl start docker
         sudo systemctl enable docker
+        
+        # Add current user to docker group
+        print_status "Adding user '$USER' to docker group..."
         sudo usermod -aG docker $USER
-        print_warning "Please log out and back in for Docker group changes to take effect."
+        
+        # Check if docker group was added successfully
+        if groups $USER | grep -q docker; then
+            print_status "User '$USER' successfully added to docker group."
+        else
+            print_warning "There might have been an issue adding user to docker group."
+        fi
+        
+        print_warning "IMPORTANT: You need to log out and back in (or restart) for Docker group changes to take effect."
+        print_warning "Alternatively, you can run 'newgrp docker' to apply the group changes immediately."
+        echo ""
+        
+        # Provide option to test docker without sudo
+        if confirm "Would you like to test Docker access now? (This will try 'newgrp docker' first)"; then
+            echo "Testing Docker access..."
+            
+            # Try newgrp docker and then test
+            if newgrp docker <<< 'docker ps >/dev/null 2>&1 && echo "SUCCESS"' | grep -q "SUCCESS"; then
+                print_status "Docker is working correctly! You can now run 'docker ps' without sudo."
+            else
+                print_warning "Docker still requires sudo or a re-login to work properly."
+                print_status "Please either:"
+                print_status "  1. Log out and back in to your system"
+                print_status "  2. Run: newgrp docker"
+                print_status "  3. Restart your terminal/session"
+                print_status "After that, you should be able to run 'docker ps' without sudo."
+            fi
+        fi
+        
+        # Show current docker permissions status
+        echo ""
+        print_status "Current user groups: $(groups $USER)"
+        print_status "To verify Docker access later, try: docker ps"
     fi
     
     print_status "Docker version: $(docker --version)"
 }
 
-# Function to install n8n via npm
-install_n8n_npm() {
-    print_status "Installing n8n via npm..."
+# Function to install Python
+install_python() {
+    local os=$(detect_os)
+    print_status "Installing Python..."
     
-    # Check system requirements
-    check_system_requirements
+    case $os in
+        "debian")
+            update_packages
+            install_package "python3"
+            install_package "python3-pip"
+            install_package "python3-venv"
+            ;;
+        "redhat")
+            update_packages
+            install_package "python3"
+            install_package "python3-pip"
+            ;;
+        "macos")
+            if command_exists brew; then
+                brew install python3
+            else
+                print_error "Homebrew not found. Please install Homebrew first or install Python manually."
+                exit 1
+            fi
+            ;;
+        *)
+            print_error "Please install Python 3 manually for your operating system."
+            exit 1
+            ;;
+    esac
     
-    # Check if Node.js is installed
-    if ! command_exists node; then
-        print_warning "Node.js not found. Installing Node.js first..."
-        install_nodejs
-    fi
-    
-    # Check Node.js version
-    NODE_VERSION=$(node --version | cut -d'v' -f2)
-    NODE_MAJOR=$(echo $NODE_VERSION | cut -d'.' -f1)
-    
-    if [ $NODE_MAJOR -lt 18 ]; then
-        print_error "Node.js 18+ is required. Current version: $NODE_VERSION"
-        print_status "Updating Node.js..."
-        install_nodejs
-    fi
-    
-    # Install n8n globally
-    npm install -g n8n
-    
-    print_status "n8n installed successfully!"
-    print_status "To start n8n, run: n8n"
-    print_status "n8n will be available at: http://localhost:5678"
-    
-    # Create systemd service (Linux only)
-    if [[ "$(detect_os)" != "macos" ]] && [[ "$(detect_os)" != "windows" ]]; then
-        if confirm "Would you like to create a systemd service for n8n?"; then
-            create_n8n_service
-        fi
-    fi
+    print_status "Python version: $(python3 --version)"
+    print_status "pip version: $(pip3 --version)"
 }
 
-# Function to install n8n via Docker
-install_n8n_docker() {
-    print_status "Setting up n8n with Docker..."
+# Function to install Git
+install_git() {
+    local os=$(detect_os)
+    print_status "Installing Git..."
     
-    # Check system requirements
-    check_system_requirements
+    case $os in
+        "debian")
+            update_packages
+            install_package "git"
+            ;;
+        "redhat")
+            update_packages
+            install_package "git"
+            ;;
+        "macos")
+            if command_exists brew; then
+                brew install git
+            else
+                # Git comes with macOS, check if it's already available
+                if command_exists git; then
+                    print_status "Git is already installed with macOS."
+                else
+                    print_error "Please install Git manually or install Homebrew first."
+                    exit 1
+                fi
+            fi
+            ;;
+        *)
+            print_error "Please install Git manually for your operating system."
+            exit 1
+            ;;
+    esac
     
-    # Check if Docker is installed
-    if ! command_exists docker; then
-        print_warning "Docker not found. Installing Docker first..."
-        install_docker
-    fi
-    
-    # Create n8n data directory
-    ensure_directory "$HOME/.n8n"
-    
-    # Create a simple start script
-    cat > n8n-docker-start.sh << 'EOF'
-#!/bin/bash
-echo "Starting n8n with Docker..."
-docker run -it --rm \
-    --name n8n \
-    -p 5678:5678 \
-    -v ~/.n8n:/home/node/.n8n \
-    n8nio/n8n
-EOF
-    
-    chmod +x n8n-docker-start.sh
-    
-    print_status "n8n Docker setup complete!"
-    print_status "To start n8n with Docker, run: ./n8n-docker-start.sh"
-    print_status "Or use: docker run -it --rm --name n8n -p 5678:5678 -v ~/.n8n:/home/node/.n8n n8nio/n8n"
-    print_status "n8n will be available at: http://localhost:5678"
-}
-
-# Function to install n8n via Docker Compose
-install_n8n_docker_compose() {
-    print_status "Creating n8n Docker Compose setup..."
-    
-    # Check system requirements
-    check_system_requirements
-    
-    # Check if Docker is installed
-    if ! command_exists docker; then
-        print_warning "Docker not found. Installing Docker first..."
-        install_docker
-    fi
-    
-    # Create project directory
-    ensure_directory "n8n-docker"
-    cd n8n-docker
-    
-    # Create docker-compose.yml
-    cat > docker-compose.yml << 'EOF'
-version: '3.8'
-
-services:
-  n8n:
-    image: n8nio/n8n:latest
-    restart: always
-    ports:
-      - "5678:5678"
-    environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme}
-      - N8N_HOST=${N8N_HOST:-localhost}
-      - N8N_PORT=${N8N_PORT:-5678}
-      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
-      - NODE_ENV=production
-      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
-      - EXECUTIONS_PROCESS=main
-      - EXECUTIONS_MODE=regular
-    volumes:
-      - n8n_data:/home/node/.n8n
-    networks:
-      - n8n-network
-    depends_on:
-      - postgres
-
-  postgres:
-    image: postgres:13
-    restart: always
-    environment:
-      POSTGRES_USER: ${DB_POSTGRESDB_USER:-n8n}
-      POSTGRES_PASSWORD: ${DB_POSTGRESDB_PASSWORD:-n8npassword}
-      POSTGRES_DB: ${DB_POSTGRESDB_DATABASE:-n8n}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - n8n-network
-
-volumes:
-  n8n_data:
-  postgres_data:
-
-networks:
-  n8n-network:
-    driver: bridge
-EOF
-
-    # Create .env file for environment variables
-    cat > .env << 'EOF'
-# n8n Configuration
-N8N_BASIC_AUTH_USER=admin
-N8N_BASIC_AUTH_PASSWORD=changeme
-N8N_HOST=localhost
-N8N_PORT=5678
-N8N_PROTOCOL=http
-WEBHOOK_URL=http://localhost:5678/
-
-# Database Configuration
-DB_TYPE=postgresdb
-DB_POSTGRESDB_HOST=postgres
-DB_POSTGRESDB_PORT=5432
-DB_POSTGRESDB_DATABASE=n8n
-DB_POSTGRESDB_USER=n8n
-DB_POSTGRESDB_PASSWORD=n8npassword
-EOF
-
-    # Create management scripts
-    cat > start.sh << 'EOF'
-#!/bin/bash
-echo "Starting n8n with Docker Compose..."
-docker-compose up -d
-echo "n8n is starting up. Please wait a few moments..."
-sleep 5
-echo "n8n should be available at: http://localhost:5678"
-EOF
-
-    cat > stop.sh << 'EOF'
-#!/bin/bash
-echo "Stopping n8n..."
-docker-compose down
-EOF
-
-    cat > logs.sh << 'EOF'
-#!/bin/bash
-echo "Showing n8n logs..."
-docker-compose logs -f n8n
-EOF
-
-    chmod +x start.sh stop.sh logs.sh
-    
-    print_status "Docker Compose setup created in ./n8n-docker/"
-    print_status "Configuration files created:"
-    print_status "  - docker-compose.yml (Main configuration)"
-    print_status "  - .env (Environment variables)"
-    print_status "  - start.sh (Start n8n)"
-    print_status "  - stop.sh (Stop n8n)"
-    print_status "  - logs.sh (View logs)"
-    echo ""
-    print_status "To start n8n:"
-    echo "  cd n8n-docker && ./start.sh"
-    print_status "To stop n8n:"
-    echo "  cd n8n-docker && ./stop.sh"
-    print_status "n8n will be available at: http://localhost:5678"
-    print_warning "Default credentials: admin/changeme (change in .env file)"
-}
-
-# Function to create systemd service for n8n
-create_n8n_service() {
-    local service_file="/etc/systemd/system/n8n.service"
-    local n8n_path=$(which n8n)
-    local user=$(whoami)
-    
-    print_status "Creating systemd service for n8n..."
-    
-    sudo tee "$service_file" > /dev/null << EOF
-[Unit]
-Description=n8n workflow automation
-After=network.target
-
-[Service]
-Type=simple
-User=$user
-ExecStart=$n8n_path
-Restart=always
-RestartSec=3
-Environment=NODE_ENV=production
-Environment=N8N_LOG_LEVEL=info
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    sudo systemctl daemon-reload
-    sudo systemctl enable n8n
-    
-    print_status "Systemd service created successfully!"
-    print_status "To start n8n service: sudo systemctl start n8n"
-    print_status "To check status: sudo systemctl status n8n"
-    print_status "To view logs: sudo journalctl -u n8n -f"
+    print_status "Git version: $(git --version)"
 }

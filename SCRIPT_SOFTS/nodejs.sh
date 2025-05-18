@@ -4,6 +4,69 @@
 # Description: JavaScript Runtime Environment
 # Contains all Node.js-specific installation methods and configurations
 
+# Function to install curl for Node.js installation
+install_curl_for_nodejs() {
+    local os=$(detect_os)
+    print_status "Installing curl for Node.js setup..."
+    
+    case $os in
+        "debian")
+            update_packages
+            install_package "curl"
+            ;;
+        "redhat")
+            update_packages
+            install_package "curl"
+            ;;
+        "macos")
+            # curl is usually pre-installed on macOS
+            if ! command_exists curl; then
+                if command_exists brew; then
+                    brew install curl
+                else
+                    print_error "Please install curl manually."
+                    exit 1
+                fi
+            fi
+            ;;
+        *)
+            print_error "Please install curl manually for your operating system."
+            exit 1
+            ;;
+    esac
+    
+    print_status "curl version: $(curl --version | head -n 1)"
+}
+
+# Function to install build tools for Node.js
+install_build_tools_for_nodejs() {
+    local os=$(detect_os)
+    print_status "Installing build tools for Node.js..."
+    
+    case $os in
+        "debian")
+            update_packages
+            install_package "build-essential"
+            install_package "python3"
+            ;;
+        "redhat")
+            update_packages
+            install_package "gcc"
+            install_package "gcc-c++"
+            install_package "make"
+            install_package "python3"
+            ;;
+        "macos")
+            if command_exists xcode-select; then
+                xcode-select --install 2>/dev/null || print_status "Xcode command line tools already installed"
+            fi
+            ;;
+        *)
+            print_warning "Build tools installation not supported for this OS."
+            ;;
+    esac
+}
+
 # Alternative approach: Description function
 nodejs_description() {
     echo "JavaScript Runtime Environment"

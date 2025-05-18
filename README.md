@@ -12,12 +12,12 @@ installation-script/
 ├── SCRIPT_LIBS/                  # Library functions
 │   ├── README.md
 │   ├── utils.sh                  # Utility functions (colors, confirmations, etc.)
-│   ├── system.sh                 # System detection and management
-│   └── installers.sh             # General dependency installers
+│   └── system.sh                 # System detection and management
 └── SCRIPT_SOFTS/                 # Software installation modules
     ├── README.md
     ├── n8n.sh                    # n8n workflow automation
-    └── php.sh                    # PHP programming language
+    ├── php.sh                    # PHP programming language
+    └── nodejs.sh                 # Node.js runtime (example)
 ```
 
 ## Quick Start
@@ -29,8 +29,9 @@ installation-script/
    ```
 
 2. **Move files to their appropriate directories:**
-   - Move `utils.sh`, `system.sh`, `installers.sh` to `SCRIPT_LIBS/`
+   - Move `utils.sh`, `system.sh` to `SCRIPT_LIBS/`
    - Move `n8n.sh`, `php.sh` to `SCRIPT_SOFTS/`
+   - Note: `installers.sh` is no longer needed
 
 3. **Run the installation script:**
    ```bash
@@ -102,20 +103,21 @@ To add support for a new software package:
 - `update_packages()` - Update package lists
 - `install_package()` - Install system packages
 - `check_system_requirements()` - Check system specs
-
-### installers.sh
-- `install_nodejs()` - Install Node.js and npm
-- `install_docker()` - Install Docker
-- `install_python()` - Install Python
-- `install_git()` - Install Git
+- `is_firewall_active()` - Check firewall status
+- `open_firewall_port()` - Configure firewall ports
+- `check_port_open()` - Check if port is available
+- `show_firewall_status()` - Display firewall info
 
 ## Features
 
 - **Cross-platform support** - Linux (Debian/RedHat), macOS
 - **Modular design** - Easy to add new software
+- **Self-contained modules** - Each software handles its own dependencies
 - **Error handling** - Graceful error management
 - **User-friendly** - Colored output and confirmations
 - **Production-ready** - Includes service creation and configuration
+- **Firewall management** - Automatic port configuration
+- **Flexible installation** - Custom directory selection
 
 ## Requirements
 

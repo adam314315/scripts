@@ -12,12 +12,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_LIBS="${SCRIPT_DIR}/SCRIPT_LIBS"
 SCRIPT_SOFTS="${SCRIPT_DIR}/SCRIPT_SOFTS"
 
-# Source library files
+# Source library fil
 source "${SCRIPT_LIBS}/utils.sh"
 source "${SCRIPT_LIBS}/system.sh"
-source "${SCRIPT_LIBS}/installers.sh"
 
 # Note: Software modules are sourced dynamically in main()
+# Note: Dependency installers are now included within each software module
 
 # Function to get available software modules
 get_available_software() {

@@ -4,6 +4,77 @@
 # Description: Web Development Language
 # Contains all PHP-specific installation methods and configurations
 
+# Function to install Python for PHP (if needed)
+install_python_for_php() {
+    local os=$(detect_os)
+    print_status "Installing Python for PHP build tools..."
+    
+    case $os in
+        "debian")
+            update_packages
+            install_package "python3"
+            install_package "python3-pip"
+            install_package "python3-venv"
+            ;;
+        "redhat")
+            update_packages
+            install_package "python3"
+            install_package "python3-pip"
+            ;;
+        "macos")
+            if command_exists brew; then
+                brew install python3
+            else
+                print_error "Homebrew not found. Please install Homebrew first or install Python manually."
+                exit 1
+            fi
+            ;;
+        *)
+            print_error "Please install Python 3 manually for your operating system."
+            exit 1
+            ;;
+    esac
+    
+    print_status "Python version: $(python3 --version)"
+    print_status "pip version: $(pip3 --version)"
+}
+
+# Function to install Git for PHP (if needed)
+install_git_for_php() {
+    local os=$(detect_os)
+    print_status "Installing Git for PHP..."
+    
+    case $os in
+        "debian")
+            update_packages
+            install_package "git"
+            ;;
+        "redhat")
+            update_packages
+            install_package "git"
+            ;;
+        "macos")
+            if command_exists brew; then
+                brew install git
+            else
+                # Git comes with macOS, check if it's already available
+                if command_exists git; then
+                    print_status "Git is already installed with macOS."
+                else
+                    print_error "Please install Git manually or install Homebrew first."
+                    exit 1
+                fi
+            fi
+            ;;
+        *)
+            print_error "Please install Git manually for your operating system."
+            exit 1
+            ;;
+    esac
+    
+    print_status "Git version: $(git --version)"
+}
+
 # Function to display PHP installation menu
 php_menu() {
     print_header "========================================="
@@ -61,6 +132,10 @@ install_php_apache() {
     # Check system requirements
     check_system_requirements
     
+    # Get web root directory
+    local default_webroot="./www"
+    local webroot_dir=$(get_installation_directory "web files (Apache document root)" "$default_webroot" "web content")
+    
     local os=$(detect_os)
     case $os in
         "debian")
@@ -78,6 +153,18 @@ install_php_apache() {
             
             # Enable PHP module
             sudo a2enmod php$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
+            
+            # Configure Apache document root
+            print_status "Configuring Apache document root to: $webroot_dir"
+            setup_installation_directory "$webroot_dir" "Apache web root"
+            
+            # Get absolute path for Apache configuration
+            local absolute_webroot=$(realpath "$webroot_dir")
+            
+            # Update Apache configuration
+            sudo sed -i "s|DocumentRoot /var/www/html|DocumentRoot $absolute_webroot|g" /etc/apache2/sites-available/000-default.conf
+            sudo sed -i "s|<Directory /var/www/>|<Directory $absolute_webroot/>|g" /etc/apache2/apache2.conf
+            
             sudo systemctl restart apache2
             ;;
         "redhat")
@@ -92,6 +179,17 @@ install_php_apache() {
             install_package "php-xml"
             install_package "php-zip"
             
+            # Configure Apache document root
+            print_status "Configuring Apache document root to: $webroot_dir"
+            setup_installation_directory "$webroot_dir" "Apache web root"
+            
+            # Get absolute path for Apache configuration
+            local absolute_webroot=$(realpath "$webroot_dir")
+            
+            # Update Apache configuration
+            sudo sed -i "s|DocumentRoot \"/var/www/html\"|DocumentRoot \"$absolute_webroot\"|g" /etc/httpd/conf/httpd.conf
+            sudo sed -i "s|<Directory \"/var/www\">|<Directory \"$absolute_webroot\">|g" /etc/httpd/conf/httpd.conf
+            
             sudo systemctl start httpd
             sudo systemctl enable httpd
             ;;
@@ -99,7 +197,9 @@ install_php_apache() {
             if command_exists brew; then
                 brew install php
                 brew install httpd
+                setup_installation_directory "$webroot_dir" "Apache web root"
                 print_status "Please configure Apache manually for macOS."
+                print_status "Document root will be: $(realpath "$webroot_dir")"
             else
                 print_error "Homebrew not found. Please install Homebrew first."
                 exit 1
@@ -111,13 +211,22 @@ install_php_apache() {
             ;;
     esac
     
+    # Configure firewall for HTTP
+    print_status "Configuring firewall for Apache..."
+    open_firewall_port 80 tcp "Apache HTTP"
+    
     # Create a simple test file
-    create_php_info_file
+    create_php_info_file "$webroot_dir"
     
     print_status "PHP with Apache installed successfully!"
-    print_status "Apache document root: /var/www/html"
+    print_status "Document root: $webroot_dir"
     print_status "Test PHP: http://localhost/info.php"
     print_status "PHP version: $(php -v | head -n 1)"
+    
+    # Show firewall status
+    if is_firewall_active; then
+        show_firewall_status
+    fi
 }
 
 # Function to install PHP with Nginx (LEMP)
@@ -126,6 +235,10 @@ install_php_nginx() {
     
     # Check system requirements
     check_system_requirements
+    
+    # Get web root directory
+    local default_webroot="./www"
+    local webroot_dir=$(get_installation_directory "web files (Nginx document root)" "$default_webroot" "web content")
     
     local os=$(detect_os)
     case $os in
@@ -142,7 +255,7 @@ install_php_nginx() {
             install_package "php-zip"
             
             # Configure Nginx for PHP
-            configure_nginx_php
+            configure_nginx_php "$webroot_dir"
             
             sudo systemctl start nginx
             sudo systemctl enable nginx
@@ -162,7 +275,7 @@ install_php_nginx() {
             install_package "php-zip"
             
             # Configure Nginx for PHP
-            configure_nginx_php
+            configure_nginx_php "$webroot_dir"
             
             sudo systemctl start nginx
             sudo systemctl enable nginx
@@ -173,7 +286,9 @@ install_php_nginx() {
             if command_exists brew; then
                 brew install php
                 brew install nginx
+                setup_installation_directory "$webroot_dir" "Nginx web root"
                 print_status "Please configure Nginx manually for macOS."
+                print_status "Document root will be: $(realpath "$webroot_dir")"
             else
                 print_error "Homebrew not found. Please install Homebrew first."
                 exit 1
@@ -185,13 +300,22 @@ install_php_nginx() {
             ;;
     esac
     
+    # Configure firewall for HTTP
+    print_status "Configuring firewall for Nginx..."
+    open_firewall_port 80 tcp "Nginx HTTP"
+    
     # Create a simple test file
-    create_php_info_file "/var/www/html"
+    create_php_info_file "$webroot_dir"
     
     print_status "PHP with Nginx installed successfully!"
-    print_status "Nginx document root: /var/www/html"
+    print_status "Document root: $webroot_dir"
     print_status "Test PHP: http://localhost/info.php"
     print_status "PHP version: $(php -v | head -n 1)"
+    
+    # Show firewall status
+    if is_firewall_active; then
+        show_firewall_status
+    fi
 }
 
 # Function to install PHP CLI only
@@ -272,27 +396,31 @@ install_php_composer() {
 
 # Function to configure Nginx for PHP
 configure_nginx_php() {
+    local webroot_dir="${1:-./www}"
     print_status "Configuring Nginx for PHP..."
     
-    # Create directory if it doesn't exist
-    ensure_directory "/var/www/html"
+    # Setup web root directory
+    setup_installation_directory "$webroot_dir" "Nginx web root"
+    
+    # Get absolute path for Nginx configuration
+    local absolute_webroot=$(realpath "$webroot_dir")
     
     # Create a simple Nginx configuration for PHP
-    cat > /tmp/default.conf << 'EOF'
+    cat > /tmp/default.conf << EOF
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
 
-    root /var/www/html;
+    root $absolute_webroot;
     index index.php index.html index.htm;
 
     server_name _;
 
     location / {
-        try_files $uri $uri/ =404;
+        try_files \$uri \$uri/ =404;
     }
 
-    location ~ \.php$ {
+    location ~ \.php\$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/var/run/php/php-fpm.sock;
     }
