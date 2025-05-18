@@ -1,2 +1,2 @@
 # scripts
-Shell script ot install softwares
+Shell scripts ot install various softwares
